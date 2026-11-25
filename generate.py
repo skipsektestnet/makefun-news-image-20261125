@@ -1,57 +1,45 @@
-#!/usr/bin/env python3
-"""Draw the front page of Wednesday 25 November 2026 as one 1024x1024 image.
+"""Draw the 25 November 2026 world-news front page: eight illustrated scenes.
 
-Deterministic: no network, no clock, no randomness. Pillow only.
-Writes entry.png next to this file.
+One image, 1024x1024, drawn entirely with Pillow: no network, no random
+numbers, no timestamps, so every run writes identical bytes.
+
+Layout (the "day in eight" front-page pattern): a dateline strip and a
+masthead on top, then eight story panels in two rows of four. Every panel
+has its own flat illustration, a number badge, a region/topic/city tag, a
+short headline, a one-line summary and a source credit. The eight stories
+were picked from what the wires reported on Wednesday 25 November 2026.
 """
 
 import os
+
 from PIL import Image, ImageDraw, ImageFont
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, "entry.png")
-
 W, H = 1024, 1024
-
-PAPER = (247, 243, 234)
-NAVY = (16, 35, 63)
-NAVY_DARK = (10, 24, 44)
-GOLD = (201, 162, 39)
-RED = (179, 38, 30)
+PAPER = (246, 241, 231)
 INK = (26, 26, 26)
+NAVY = (22, 35, 63)
 MUTED = (90, 90, 90)
-CARD = (255, 255, 255)
-BORDER = (216, 210, 196)
-STEEL = (31, 78, 121)
-PURPLE = (108, 52, 131)
-TEAL = (14, 124, 107)
-TICKER = (159, 176, 195)
+RULE = (26, 35, 63)
 
 FONT_DIR = "/usr/share/fonts/truetype/dejavu"
 
 
 def font(name, size):
-    return ImageFont.truetype(os.path.join(FONT_DIR, name), size)
+    path = os.path.join(FONT_DIR, name)
+    try:
+        return ImageFont.truetype(path, size)
+    except OSError:
+        return ImageFont.load_default()
 
 
-F_TITLE = font("DejaVuSans-Bold.ttf", 46)
-F_DATE = font("DejaVuSans-Bold.ttf", 22)
-F_KICKER = font("DejaVuSans-Bold.ttf", 15)
-F_TAG = font("DejaVuSans-Bold.ttf", 14)
-F_LEAD_HEAD = font("DejaVuSans-Bold.ttf", 33)
-F_LEAD_BODY = font("DejaVuSans.ttf", 18)
-F_PANEL_HEAD = font("DejaVuSans-Bold.ttf", 20)
-F_PANEL_BODY = font("DejaVuSans.ttf", 15)
-F_PANEL_TAG = font("DejaVuSans-Bold.ttf", 12)
-F_DIGEST_HEAD = font("DejaVuSans-Bold.ttf", 17)
-F_DIGEST = font("DejaVuSans.ttf", 18)
-F_DIGEST_B = font("DejaVuSans-Bold.ttf", 18)
-F_TICKER = font("DejaVuSans.ttf", 15)
-F_FOOT = font("DejaVuSans.ttf", 12)
+SERIF_BOLD = lambda s: font("DejaVuSerif-Bold.ttf", s)
+SERIF = lambda s: font("DejaVuSerif.ttf", s)
+SANS = lambda s: font("DejaVuSans.ttf", s)
+SANS_BOLD = lambda s: font("DejaVuSans-Bold.ttf", s)
 
 
 def wrap(draw, text, fnt, max_w):
-    """Greedy word wrap; returns list of lines that fit max_w pixels."""
+    """Split text into lines that fit max_w pixels."""
     lines, cur = [], ""
     for word in text.split(" "):
         trial = word if not cur else cur + " " + word
@@ -66,226 +54,313 @@ def wrap(draw, text, fnt, max_w):
     return lines
 
 
-def draw_lines(draw, lines, x, y, fnt, fill, leading):
-    for line in lines:
-        draw.text((x, y), line, font=fnt, fill=fill)
-        y += leading
-    return y
+def vgrad(draw, box, top, bottom):
+    """Vertical gradient across box (x0, y0, x1, y1)."""
+    x0, y0, x1, y1 = box
+    steps = max(1, y1 - y0)
+    for i in range(steps):
+        t = i / steps
+        col = tuple(int(top[c] + (bottom[c] - top[c]) * t) for c in range(3))
+        draw.line([(x0, y0 + i), (x1, y0 + i)], fill=col)
 
 
-def shield(draw, cx, cy, s, fill):
-    """Shield outline with a lightning crack and a gold keyhole."""
-    pts = [
-        (cx - s, cy - s * 0.85),
-        (cx + s, cy - s * 0.85),
-        (cx + s, cy + s * 0.15),
-        (cx, cy + s),
-        (cx - s, cy + s * 0.15),
-    ]
-    draw.polygon(pts, fill=fill)
-    crack = [
-        (cx + 2, cy - s * 0.62),
-        (cx - 12, cy - s * 0.12),
-        (cx + 4, cy + s * 0.05),
-        (cx - 6, cy + s * 0.55),
-    ]
-    draw.line(crack, fill=(255, 255, 255), width=4, joint="curve")
-    draw.ellipse(
-        (cx + 14 - 6, cy - s * 0.62 - 6, cx + 14 + 6, cy - s * 0.62 + 6),
-        fill=GOLD,
-    )
-    draw.rectangle((cx + 11, cy - s * 0.62 + 2, cx + 17, cy - s * 0.62 + 14), fill=GOLD)
+def skyline(draw, box, color, heights):
+    """Dark building silhouettes along the bottom of box."""
+    x0, y0, x1, y1 = box
+    n = len(heights)
+    bw = (x1 - x0) / n
+    for i, h in enumerate(heights):
+        bx = x0 + i * bw
+        draw.rectangle([bx + 1, y1 - h, bx + bw - 1, y1], fill=color)
 
 
-def tower(draw, cx, cy, s):
-    """Tapering skyscraper with dark windows and a small drone above it."""
-    top = cy - s * 0.92
-    base = cy + s * 0.95
-    draw.polygon(
-        [(cx - s * 0.5, base), (cx - s * 0.26, top), (cx + s * 0.26, top), (cx + s * 0.5, base)],
-        fill=(255, 255, 255),
-    )
-    for row in range(5):
-        wy = top + 9 + row * 11
-        half = s * 0.5 - (base - wy) * 0.12
-        draw.line((cx - half, wy, cx + half, wy), fill=NAVY, width=2)
-    # drone: body + two rotors, clear of the tower
-    dx, dy = cx + s * 0.78, cy - s * 0.62
-    draw.ellipse((dx - 6, dy - 3, dx + 6, dy + 3), fill=(255, 255, 255))
-    draw.line((dx - 12, dy - 6, dx + 12, dy - 6), fill=(255, 255, 255), width=2)
-    draw.line((dx - 8, dy + 3, dx - 14, dy + 10), fill=(255, 255, 255), width=2)
+def person(draw, x, y, s, color):
+    """Tiny standing figure: head dot + body line."""
+    draw.ellipse([x - s * 0.22, y - s * 1.5, x + s * 0.22, y - s * 1.06], fill=color)
+    draw.line([(x, y - s * 1.05), (x, y)], fill=color, width=max(2, int(s * 0.14)))
+    draw.line([(x, y), (x - s * 0.3, y + s * 0.55)], fill=color, width=max(2, int(s * 0.12)))
+    draw.line([(x, y), (x + s * 0.3, y + s * 0.55)], fill=color, width=max(2, int(s * 0.12)))
 
 
-def ship(draw, cx, cy, s):
-    """Cargo ship with containers, a mast and waves, plus a drone overhead."""
-    draw.polygon(
-        [
-            (cx - s, cy + s * 0.25),
-            (cx + s, cy + s * 0.25),
-            (cx + s * 0.72, cy + s * 0.72),
-            (cx - s * 0.72, cy + s * 0.72),
-        ],
-        fill=(255, 255, 255),
-    )
-    for i, off in enumerate((-s * 0.55, 0, s * 0.55)):
-        c = (255, 255, 255) if i != 1 else GOLD
-        draw.rectangle(
-            (cx + off - 11, cy - s * 0.42, cx + off + 11, cy + s * 0.1), fill=c
-        )
-    draw.line((cx + s * 0.55, cy - s * 0.42, cx + s * 0.55, cy - s * 0.85),
-              fill=(255, 255, 255), width=3)
-    # waves
-    for wy in (cy + s * 0.9, cy + s + 6):
-        draw.arc(
-            (cx - s, wy - 5, cx - s * 0.3, wy + 5), 180, 360, fill=(255, 255, 255), width=2
-        )
-        draw.arc(
-            (cx + s * 0.3, wy - 5, cx + s, wy + 5), 180, 360, fill=(255, 255, 255), width=2
-        )
-    # drone overhead
-    dx, dy = cx + s * 0.55, cy - s
-    draw.ellipse((dx - 6, dy - 3, dx + 6, dy + 3), fill=GOLD)
-    draw.line((dx - 11, dy - 6, dx + 11, dy - 6), fill=GOLD, width=2)
+# ---------------------------------------------------------------- scenes
+# Each scene draws a flat illustration inside box (x0, y0, x1, y1).
+
+def scene_hack(draw, b):
+    x0, y0, x1, y1 = b
+    vgrad(draw, b, (24, 38, 66), (10, 16, 32))
+    # server racks
+    for i, sx in enumerate(range(x0 + 12, x1 - 30, 34)):
+        draw.rectangle([sx, y0 + 26, sx + 26, y1 - 18], fill=(30, 48, 80))
+        for r in range(4):
+            draw.rectangle([sx + 5, y0 + 34 + r * 14, sx + 21, y0 + 40 + r * 14],
+                           fill=(90, 200, 120) if (i + r) % 3 else (230, 170, 60))
+    # cracked shield in the middle
+    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2 + 8
+    draw.polygon([(cx - 34, cy - 30), (cx + 34, cy - 30), (cx + 34, cy + 6),
+                  (cx, cy + 38), (cx - 34, cy + 6)], fill=(214, 178, 74))
+    draw.line([(cx + 8, cy - 28), (cx - 4, cy - 8), (cx + 10, cy + 4),
+               (cx - 6, cy + 22)], fill=(22, 35, 63), width=4)
+    draw.ellipse([cx - 5, cy - 18, cx + 5, cy - 8], fill=(22, 35, 63))
 
 
-def chip(draw, cx, cy, s):
-    """Microchip: square body, inner die and pins on four sides."""
-    draw.rectangle(
-        (cx - s * 0.62, cy - s * 0.62, cx + s * 0.62, cy + s * 0.62),
-        outline=(255, 255, 255), width=4,
-    )
-    draw.rectangle(
-        (cx - s * 0.3, cy - s * 0.3, cx + s * 0.3, cy + s * 0.3),
-        fill=(255, 255, 255),
-    )
+def scene_tower(draw, b):
+    x0, y0, x1, y1 = b
+    vgrad(draw, b, (232, 150, 104), (122, 74, 94))
+    draw.ellipse([x1 - 52, y0 + 14, x1 - 26, y0 + 40], fill=(244, 214, 150))
+    skyline(draw, (x0, y0 + 96, x1, y1), (52, 44, 66), [46, 70, 38, 58, 44])
+    # PIF tower: tall tapered slab, centre
+    cx = (x0 + x1) // 2
+    draw.polygon([(cx - 26, y1), (cx - 16, y0 + 30), (cx + 16, y0 + 30),
+                  (cx + 26, y1)], fill=(38, 34, 52))
+    for r in range(5):
+        wy = y0 + 44 + r * 16
+        draw.line([(cx - 14, wy), (cx + 14, wy)], fill=(244, 200, 110), width=2)
+    # smoke + small drone
+    for i, (sx, sy, sr) in enumerate([(cx - 6, y0 + 22, 9), (cx + 8, y0 + 12, 12),
+                                      (cx + 2, y0 + 2, 8)]):
+        draw.ellipse([sx - sr, sy - sr, sx + sr, sy + sr], fill=(120, 110, 118))
+    draw.line([(cx + 44, y0 + 40), (cx + 58, y0 + 40)], fill=(30, 28, 40), width=3)
+    draw.line([(cx + 51, y0 + 33), (cx + 51, y0 + 47)], fill=(30, 28, 40), width=3)
+
+
+def scene_ship(draw, b):
+    x0, y0, x1, y1 = b
+    vgrad(draw, (x0, y0, x1, y0 + 92), (207, 216, 220), (159, 179, 192))
+    draw.rectangle([x0, y0 + 92, x1, y1], fill=(61, 107, 142))
     for i in range(3):
-        off = -s * 0.34 + i * s * 0.34
-        draw.line((cx + off, cy - s * 0.62, cx + off, cy - s * 0.9),
-                  fill=(255, 255, 255), width=3)
-        draw.line((cx + off, cy + s * 0.62, cx + off, cy + s * 0.9),
-                  fill=(255, 255, 255), width=3)
-        draw.line((cx - s * 0.62, cy + off, cx - s * 0.9, cy + off),
-                  fill=(255, 255, 255), width=3)
-        draw.line((cx + s * 0.62, cy + off, cx + s * 0.9, cy + off),
-                  fill=(255, 255, 255), width=3)
+        wy = y0 + 112 + i * 18
+        draw.arc([x0 + 8 + i * 30, wy, x0 + 70 + i * 30, wy + 14],
+                 200, 340, fill=(200, 220, 232), width=3)
+    # cargo ship
+    sx, sy = x0 + 42, y0 + 108
+    draw.polygon([(sx, sy), (sx + 150, sy), (sx + 138, sy + 30), (sx + 12, sy + 30)],
+                 fill=(32, 40, 56))
+    for i, cc in enumerate([(178, 90, 60), (90, 140, 90), (200, 170, 80)]):
+        draw.rectangle([sx + 18 + i * 34, sy - 26, sx + 46 + i * 34, sy - 2], fill=cc)
+    draw.rectangle([sx + 118, sy - 44, sx + 138, sy - 2], fill=(220, 220, 210))
+    # drone + impact splash
+    draw.line([(sx + 128, sy - 58), (sx + 142, sy - 58)], fill=(30, 30, 36), width=3)
+    draw.line([(sx + 135, sy - 65), (sx + 135, sy - 51)], fill=(30, 30, 36), width=3)
+    for a in range(6):
+        import math
+        ang = a * 1.047
+        ex, ey = sx + 150 + int(14 * math.cos(ang)), sy + 8 + int(10 * math.sin(ang))
+        draw.line([(sx + 150, sy + 8), (ex, ey)], fill=(235, 240, 244), width=2)
 
 
-def cross(draw, cx, cy, s):
-    """Bold medical cross in a ring."""
-    draw.ellipse(
-        (cx - s, cy - s, cx + s, cy + s), outline=(255, 255, 255), width=4
-    )
-    draw.rectangle(
-        (cx - s * 0.18, cy - s * 0.62, cx + s * 0.18, cy + s * 0.62),
-        fill=(255, 255, 255),
-    )
-    draw.rectangle(
-        (cx - s * 0.62, cy - s * 0.18, cx + s * 0.62, cy + s * 0.18),
-        fill=(255, 255, 255),
-    )
+def scene_trial(draw, b):
+    x0, y0, x1, y1 = b
+    vgrad(draw, b, (216, 207, 192), (190, 178, 158))
+    # courthouse: pediment + columns
+    cx = (x0 + x1) // 2
+    draw.polygon([(cx - 78, y0 + 52), (cx + 78, y0 + 52), (cx, y0 + 16)], fill=(164, 150, 124))
+    draw.rectangle([x0 + 18, y0 + 52, x1 - 18, y0 + 60], fill=(140, 126, 100))
+    for i in range(4):
+        px = x0 + 30 + i * 48
+        draw.rectangle([px, y0 + 60, px + 16, y1 - 30], fill=(196, 184, 160))
+    draw.rectangle([x0 + 14, y1 - 30, x1 - 14, y1 - 18], fill=(140, 126, 100))
+    # chip on the steps
+    draw.rectangle([cx - 26, y1 - 62, cx + 26, y1 - 14], fill=(52, 44, 66))
+    draw.rectangle([cx - 14, y1 - 50, cx + 14, y1 - 26], fill=(120, 170, 90))
+    for i in range(3):
+        draw.line([(cx - 32, y1 - 52 + i * 12), (cx - 26, y1 - 52 + i * 12)],
+                  fill=(52, 44, 66), width=3)
+        draw.line([(cx + 26, y1 - 52 + i * 12), (cx + 32, y1 - 52 + i * 12)],
+                  fill=(52, 44, 66), width=3)
 
 
-def panel(draw, x, y, w, h, accent, icon, tag, headline, body):
-    draw.rectangle((x, y, x + w, y + h), fill=CARD, outline=BORDER, width=1)
-    draw.rectangle((x, y, x + w, y + 5), fill=accent)
-    cx, cy, r = x + 54, y + 58, 34
-    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=accent)
-    icon(draw, cx, cy, 22)
-    tx = x + 106
-    draw.text((tx, y + 16), tag, font=F_PANEL_TAG, fill=accent)
-    head = wrap(draw, headline, F_PANEL_HEAD, w - 106 - 14)
-    assert len(head) <= 2, f"headline too long: {headline}"
-    by = draw_lines(draw, head, tx, y + 36, F_PANEL_HEAD, INK, 24)
-    body_lines = wrap(draw, body, F_PANEL_BODY, w - 106 - 14)
-    assert len(body_lines) <= 3, f"body too long: {body}"
-    end = draw_lines(draw, body_lines, tx, by + 4, F_PANEL_BODY, (68, 68, 68), 19)
-    assert end <= y + h - 8, f"panel overflows: {headline}"
+def scene_hospital(draw, b):
+    x0, y0, x1, y1 = b
+    vgrad(draw, (x0, y0, x1, y0 + 90), (232, 220, 192), (210, 196, 160))
+    draw.polygon([(x0, y1), (x0, y1 - 52), (x0 + 90, y1 - 78), (x1, y1 - 52), (x1, y1)],
+                 fill=(122, 154, 90))
+    draw.polygon([(x0, y1), (x0, y1 - 34), (x0 + 120, y1 - 58), (x1, y1 - 30), (x1, y1)],
+                 fill=(93, 127, 71))
+    # hospital block + cross
+    hx, hy = x0 + 52, y0 + 78
+    draw.rectangle([hx, hy, hx + 110, y1 - 26], fill=(240, 238, 230))
+    draw.rectangle([hx + 44, hy - 22, hx + 66, hy], fill=(240, 238, 230))
+    draw.rectangle([hx + 50, hy - 14, hx + 60, hy + 8], fill=(46, 130, 90))
+    draw.rectangle([hx + 42, hy - 6, hx + 68, hy + 2], fill=(46, 130, 90))
+    for i in range(3):
+        draw.rectangle([hx + 10 + i * 32, hy + 18, hx + 26 + i * 32, hy + 34],
+                       fill=(90, 120, 140))
+    person(draw, x1 - 44, y1 - 26, 20, (40, 40, 48))
+    person(draw, x1 - 66, y1 - 26, 18, (40, 40, 48))
+
+
+def scene_crash(draw, b):
+    x0, y0, x1, y1 = b
+    vgrad(draw, b, (217, 201, 168), (176, 158, 120))
+    draw.polygon([(x0, y1), (x0, y1 - 46), (x0 + 110, y1 - 84), (x1, y1 - 40), (x1, y1)],
+                 fill=(120, 104, 70))
+    draw.polygon([(x0, y1), (x0, y1 - 26), (x0 + 140, y1 - 52), (x1, y1 - 22), (x1, y1)],
+                 fill=(96, 84, 56))
+    # smoke column
+    for i, (sx, sy, sr) in enumerate([(150, 96, 10), (158, 74, 13), (146, 52, 15),
+                                      (156, 30, 12)]):
+        draw.ellipse([x0 + sx - sr, y0 + sy - sr, x0 + sx + sr, y0 + sy + sr],
+                     fill=(110, 104, 100))
+    # tilted helicopter
+    hx, hy = x0 + 118, y0 + 118
+    draw.ellipse([hx - 26, hy - 10, hx + 26, hy + 10], fill=(52, 52, 60))
+    draw.polygon([(hx + 22, hy - 4), (hx + 52, hy - 12), (hx + 52, hy - 4),
+                  (hx + 22, hy + 2)], fill=(52, 52, 60))
+    draw.line([(hx - 34, hy - 16), (hx + 34, hy - 16)], fill=(52, 52, 60), width=4)
+    draw.line([(hx - 6, hy + 10), (hx - 14, hy + 26)], fill=(52, 52, 60), width=3)
+
+
+def scene_paris(draw, b):
+    x0, y0, x1, y1 = b
+    vgrad(draw, b, (207, 212, 216), (176, 182, 188))
+    cx = (x0 + x1) // 2
+    draw.polygon([(cx - 74, y0 + 58), (cx + 74, y0 + 58), (cx, y0 + 22)], fill=(150, 138, 116))
+    draw.rectangle([x0 + 22, y0 + 58, x1 - 22, y0 + 66], fill=(128, 116, 96))
+    for i in range(4):
+        px = x0 + 34 + i * 46
+        draw.rectangle([px, y0 + 66, px + 15, y1 - 34], fill=(188, 176, 152))
+    for i in range(3):
+        draw.rectangle([x0 + 14, y1 - 34 + i * 8, x1 - 14, y1 - 28 + i * 8],
+                       fill=(150, 138, 116))
+    # small tricolore on a pole
+    fx = x0 + 30
+    draw.line([(fx, y0 + 18), (fx, y0 + 58)], fill=(60, 60, 66), width=3)
+    draw.rectangle([fx, y0 + 18, fx + 12, y0 + 32], fill=(36, 68, 150))
+    draw.rectangle([fx + 12, y0 + 18, fx + 24, y0 + 32], fill=(240, 240, 236))
+    draw.rectangle([fx + 24, y0 + 18, fx + 36, y0 + 32], fill=(190, 60, 60))
+
+
+def scene_chip(draw, b):
+    x0, y0, x1, y1 = b
+    vgrad(draw, b, (26, 32, 40), (12, 16, 22))
+    # circuit traces
+    for i, (tx, ty) in enumerate([(30, 40), (180, 30), (40, 150), (190, 140)]):
+        draw.line([(x0 + tx, y0 + ty), (x0 + tx + 26, y0 + ty + 18)],
+                  fill=(60, 90, 70), width=2)
+        draw.ellipse([x0 + tx + 22, y0 + ty + 14, x0 + tx + 30, y0 + ty + 22],
+                     fill=(118, 185, 0))
+    # big chip, centre
+    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2 + 6
+    draw.rectangle([cx - 52, cy - 40, cx + 52, cy + 40], fill=(30, 38, 30))
+    draw.rectangle([cx - 38, cy - 26, cx + 38, cy + 26], fill=(118, 185, 0))
+    draw.rectangle([cx - 20, cy - 12, cx + 20, cy + 12], fill=(30, 38, 30))
+    for i in range(5):
+        px = cx - 44 + i * 22
+        draw.line([(px, cy - 52), (px, cy - 40)], fill=(160, 170, 160), width=3)
+        draw.line([(px, cy + 40), (px, cy + 52)], fill=(160, 170, 160), width=3)
+    # rising arrow
+    draw.line([(cx + 62, cy + 26), (cx + 62, cy - 18), (cx + 62, cy - 18)],
+              fill=(118, 185, 0), width=5)
+    draw.polygon([(cx + 52, cy - 14), (cx + 72, cy - 14), (cx + 62, cy - 30)],
+                 fill=(118, 185, 0))
+
+
+SCENES = [scene_hack, scene_tower, scene_ship, scene_trial,
+          scene_hospital, scene_crash, scene_paris, scene_chip]
+
+STORIES = [
+    ("UNITED STATES · WASHINGTON", (168, 52, 52),
+     "Hackers breach the CIA's open network",
+     "Hackers hit the CIA's unclassified system for public material. No secrets touched.",
+     "NYT · REUTERS"),
+    ("MIDDLE EAST · RIYADH", (168, 52, 52),
+     "Drone hits Riyadh's tallest tower again",
+     "A Houthi drone struck the PIF Tower, the second hit in a week. Eleven were wounded.",
+     "REUTERS · AL JAZEERA"),
+    ("EUROPE · GULF OF FINLAND", (40, 80, 130),
+     "Ukraine says it hit a Russian cargo ship",
+     "Kyiv confirms the drone strike on the Sparta II. Norway urges caution.",
+     "REUTERS · BLOOMBERG"),
+    ("TECHNOLOGY · NEW YORK", (110, 60, 130),
+     "Huawei guilty in US secrets trial",
+     "A jury convicts Huawei on 10 of 12 counts, including bank fraud. It is cleared of racketeering.",
+     "DOJ · AFP"),
+    ("AFRICA · DR CONGO", (30, 110, 80),
+     "WHO pulls its Ebola team out of Ituri",
+     "Staff leave a hospital in Akwe after three days sheltering from fighting in the Ebola zone.",
+     "WHO · REUTERS"),
+    ("EUROPE · ESKISEHIR", (40, 80, 130),
+     "Army helicopter crashes, five killed",
+     "A Turkish military helicopter comes down during a training flight. Five soldiers die.",
+     "DAILY SABAH"),
+    ("EUROPE · PARIS", (40, 80, 130),
+     "Sarkozy's Libya case goes to trial",
+     "The former president must stand trial over alleged Libyan funding. First hearing: April 2027.",
+     "REUTERS"),
+    ("TECHNOLOGY · CALIFORNIA", (90, 140, 40),
+     "Nvidia brings back Jensen Huang",
+     "The chipmaker reinstates Huang as chief executive days after his sudden exit.",
+     "AP · FT"),
+]
+
+
+def draw_panel(draw, idx, x, y, w, h):
+    tag, accent, headline, summary, source = STORIES[idx]
+    # illustration
+    ix0, iy0, ix1, iy1 = x, y, x + w, y + 182
+    SCENES[idx](draw, (ix0, iy0, ix1, iy1))
+    draw.rectangle([ix0, iy0, ix1, iy1], outline=(60, 60, 60), width=1)
+    # number badge
+    bx, by = x + 18, y + 18
+    draw.ellipse([bx - 13, by - 13, bx + 13, by + 13], fill=NAVY)
+    nf = SANS_BOLD(15)
+    tw = draw.textlength(str(idx + 1), font=nf)
+    draw.text((bx - tw / 2, by - 8), str(idx + 1), font=nf, fill=(255, 255, 255))
+    # tag with accent square
+    ty = y + 196
+    draw.rectangle([x, ty + 1, x + 9, ty + 10], fill=accent)
+    tf = SANS_BOLD(12)
+    draw.text((x + 14, ty), tag, font=tf, fill=accent)
+    # headline
+    hf = SERIF_BOLD(25)
+    lines = wrap(draw, headline, hf, w)[:3]
+    hy = ty + 22
+    for ln in lines:
+        draw.text((x, hy), ln, font=hf, fill=INK)
+        hy += 30
+    # summary
+    sf = SANS(14)
+    slines = wrap(draw, summary, sf, w)[:3]
+    sy = hy + 6
+    for ln in slines:
+        draw.text((x, sy), ln, font=sf, fill=(74, 74, 74))
+        sy += 18
+    # source credit, pinned to panel bottom
+    cf = SANS(11)
+    draw.text((x, y + h - 16), source, font=cf, fill=MUTED)
 
 
 def main():
     img = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(img)
-
-    # ---- masthead ----
-    d.rectangle((0, 0, W, 96), fill=NAVY)
-    d.rectangle((0, 96, W, 100), fill=GOLD)
-    d.text((28, 22), "THE WORLD TODAY", font=F_TITLE, fill=(255, 255, 255))
-    d.text((996, 18), "WEDNESDAY", font=F_DATE, fill=GOLD, anchor="ra")
-    d.text((996, 48), "25 NOVEMBER 2026", font=F_DATE, fill=(255, 255, 255), anchor="ra")
-
-    # ---- kicker strip ----
-    kicker = "ONE DAY  ·  TEN STORIES  ·  AS REPORTED ON WEDNESDAY 25 NOVEMBER 2026"
-    d.text((W // 2, 112), kicker, font=F_KICKER, fill=RED, anchor="ma")
-
-    # ---- lead story: CIA / ODNI hack ----
-    lx, ly, lw, lh = 24, 138, 976, 198
-    d.rectangle((lx, ly, lx + lw, ly + lh), fill=CARD, outline=BORDER, width=1)
-    d.rectangle((lx, ly, lx + 10, ly + lh), fill=RED)
-    shield(d, 132, 237, 52, NAVY)
-    tx = 240
-    d.text((tx, 152), "WASHINGTON — CYBERATTACK", font=F_TAG, fill=RED)
-    head = wrap(d, "CIA AND SPY CHIEF'S OFFICE HACKED", F_LEAD_HEAD, lw - 240 - 20)
-    assert len(head) <= 2
-    by = draw_lines(d, head, tx, 176, F_LEAD_HEAD, INK, 38)
-    body = (
-        "Hackers breached an unclassified network the CIA and the Director of "
-        "National Intelligence use to analyse open-source material. Officials "
-        "say no classified data was hit; the attacker is unknown."
-    )
-    blines = wrap(d, body, F_LEAD_BODY, lw - 240 - 20)
-    assert len(blines) <= 3, f"lead body too long: {blines}"
-    end = draw_lines(d, blines, tx, by + 6, F_LEAD_BODY, (68, 68, 68), 23)
-    assert end <= ly + lh - 8, "lead overflows"
-
-    # ---- grid of four stories ----
-    gx, gy = 24, 348
-    pw, ph, gap = 482, 158, 12
-    panel(d, gx, gy, pw, ph, RED, tower, "RIYADH",
-          "Houthi drone hits Riyadh's tallest tower",
-          "Second strike on the PIF Tower in a week wounds 11, Saudi civil defence says.")
-    panel(d, gx + pw + gap, gy, pw, ph, STEEL, ship, "GULF OF FINLAND",
-          "Zelenskiy: we hit Russian ship Sparta II",
-          "Kyiv confirms Saturday's drone strike on the arms-carrying cargo vessel; Norway urges caution.")
-    panel(d, gx, gy + ph + gap, pw, ph, PURPLE, chip, "NEW YORK",
-          "Huawei guilty in US trade-secrets trial",
-          "Jury convicts the Chinese telecom giant on 10 of 12 counts, including bank fraud.")
-    panel(d, gx + pw + gap, gy + ph + gap, pw, ph, TEAL, cross, "DR CONGO",
-          "WHO pulls Ebola team out of Ituri",
-          "Staff evacuated from a hospital in Akwe after sheltering three days amid fierce fighting.")
-
-    # ---- digest: five more stories ----
-    dy = 688
-    d.text((24, dy), "ALSO ON 25 NOVEMBER", font=F_DIGEST_HEAD, fill=RED)
-    d.rectangle((24, dy + 26, 144, dy + 29), fill=GOLD)
-    items = [
-        ("Türkiye — ", "Army helicopter crashes in Eskişehir, killing five soldiers."),
-        ("Paris — ", "Sarkozy corruption case ordered to trial; first hearing set for April 2027."),
-        ("Washington — ", "Trump awards Rudy Giuliani the Presidential Medal of Freedom."),
-        ("London — ", "England beat Australia by eight wickets to level the T20 series."),
-        ("Science — ", "Astronomers find a quasar born within 630 million years of the Big Bang."),
-    ]
-    y = dy + 36
-    for i, (lead, rest) in enumerate(items):
-        accent = (RED, STEEL, PURPLE, TEAL, NAVY)[i]
-        d.rectangle((28, y + 6, 38, y + 16), fill=accent)
-        d.text((48, y), lead, font=F_DIGEST_B, fill=INK)
-        lw_ = d.textlength(lead, font=F_DIGEST_B)
-        d.text((48 + lw_, y), rest, font=F_DIGEST, fill=(68, 68, 68))
-        total = d.textlength(lead + rest, font=F_DIGEST)
-        assert 48 + total <= 1000, f"digest line too long: {lead}{rest}"
-        y += 36
-    assert y <= 916, "digest overflows"
-
-    # ---- ticker + footer band ----
-    d.rectangle((0, 924, W, H), fill=NAVY)
-    ticker = ("THE WIRE  ·  SpaceX sued over Grok deepfakes  ·  "
-              "Trump meets NATO chief Rutte  ·  US consumer confidence jumps")
-    d.text((W // 2, 938), ticker, font=F_TICKER, fill=(255, 255, 255), anchor="ma")
-    foot = "Sources: The New York Times · Reuters · CNN · Associated Press · AFP"
-    d.text((W // 2, 970), foot, font=F_FOOT, fill=TICKER, anchor="ma")
-
-    img.save(OUT, "PNG", optimize=True)
-    print("wrote", OUT, os.path.getsize(OUT), "bytes")
+    draw = ImageDraw.Draw(img)
+    # outer border
+    draw.rectangle([10, 10, W - 11, H - 11], outline=RULE, width=3)
+    # dateline strip
+    df = SANS_BOLD(17)
+    draw.text((28, 26), "WEDNESDAY, 25 NOVEMBER 2026", font=df, fill=NAVY)
+    rf = SANS(15)
+    right = "8 STORIES · EVERY ONE SOURCED"
+    draw.text((W - 28 - draw.textlength(right, font=rf), 28), right, font=rf, fill=MUTED)
+    draw.line([(28, 56), (W - 28, 56)], fill=RULE, width=2)
+    # masthead
+    mf = SERIF_BOLD(56)
+    draw.text((28, 66), "THE WORLD IN EIGHT", font=mf, fill=NAVY)
+    draw.line([(28, 136), (W - 28, 136)], fill=RULE, width=2)
+    draw.line([(28, 141), (W - 28, 141)], fill=RULE, width=1)
+    # grid: 2 rows x 4 cols
+    gx, gy = 28, 156
+    gw = (W - 2 * 28 - 3 * 12) // 4
+    gh = 384
+    for i in range(8):
+        px = gx + (i % 4) * (gw + 12)
+        py = gy + (i // 4) * (gh + 12)
+        draw_panel(draw, i, px, py, gw, gh)
+    # footer
+    fy = gy + 2 * gh + 12 + 18
+    ff = SANS(13)
+    foot = "SOURCES: THE NEW YORK TIMES · REUTERS · ASSOCIATED PRESS · AFP · BBC · WHO"
+    draw.text(((W - draw.textlength(foot, font=ff)) / 2, fy), foot, font=ff, fill=MUTED)
+    img.save("entry.png")
 
 
 if __name__ == "__main__":

@@ -1,22 +1,22 @@
-#!/usr/bin/env python3
-"""Entrypoint: copy the entry image this repository ships to /output/entry.png.
+"""Entrypoint: copy the pre-drawn entry.png to the grader's output dir.
 
-Standard library only. Deterministic: the same bytes every run.
+The image is drawn by generate.py (same directory) and committed to the
+repository; this program only places it at /output/entry.png, using the
+MAKEFUN_OUTPUT_DIR environment variable when the grader sets it.
 """
 
 import os
 import shutil
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+# The image itself is drawn by generate.py and committed; this entrypoint
+# only places the committed bytes where the grader expects them.
+SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "entry.png")
 
 
 def main():
     out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
     os.makedirs(out_dir, exist_ok=True)
-    src = os.path.join(HERE, "entry.png")
-    dst = os.path.join(out_dir, "entry.png")
-    shutil.copyfile(src, dst)
-    print("wrote", dst)
+    shutil.copyfile(SRC, os.path.join(out_dir, "entry.png"))
 
 
 if __name__ == "__main__":
