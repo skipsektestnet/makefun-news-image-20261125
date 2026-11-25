@@ -1,22 +1,26 @@
-"""Entrypoint: copy the pre-drawn entry.png to the grader's output dir.
+#!/usr/bin/env python3
+"""Entry point for the make.fun news-image-20261125 v3 entry.
 
-The image is drawn by generate.py (same directory) and committed to the
-repository; this program only places it at /output/entry.png, using the
-MAKEFUN_OUTPUT_DIR environment variable when the grader sets it.
+Copies the pre-rendered entry.png (produced by generate.py) to the output
+directory the harness provides. Standard library only, no network, fully
+deterministic: the bytes written are exactly the bytes of entry.png.
 """
-
 import os
 import shutil
+import sys
 
-# The image itself is drawn by generate.py and committed; this entrypoint
-# only places the committed bytes where the grader expects them.
-SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "entry.png")
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def main():
-    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
+    # The harness sets MAKEFUN_OUTPUT_DIR; fall back to /output, then argv[1].
+    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR") or os.environ.get("OUTPUT_DIR")
+    if not out_dir:
+        out_dir = "/output" if len(sys.argv) < 2 else sys.argv[1]
     os.makedirs(out_dir, exist_ok=True)
-    shutil.copyfile(SRC, os.path.join(out_dir, "entry.png"))
+    src = os.path.join(HERE, "entry.png")
+    dst = os.path.join(out_dir, "entry.png")
+    shutil.copyfile(src, dst)
 
 
 if __name__ == "__main__":
